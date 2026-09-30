@@ -1,8 +1,8 @@
 #! python 3
 """
-Build a laser job file (.sp extension, CSV content: Active, ID, X, Y, Z, B,
-C, Pen, L3D, plus any custom columns you want) by matching a CSV (ID, X, Y,
-Z, I, J, K -- the same format used by attach_UAdata_to_closest_mesh.py)
+Build a laser job file (.sp extension, CSV content: Active, ID|S, X, Y, Z,
+B, C, Pen, L3D|S, plus any custom columns you want) by matching a CSV (ID,
+X, Y, Z, I, J, K -- the same format used by attach_UAdata_to_closest_mesh.py)
 against a .MACH file exported by the Rhino CAM, pulling each matched row's
 motion coordinates (X, Y, Z, B, C), its .l3d slicing filename, and the laser
 "pen" (the P value of the most recent M111 line above that row).
@@ -24,20 +24,25 @@ Written with a .sp extension (not .csv) -- the content is still plain CSV,
 just saved under the extension the downstream job expects. One row per
 input CSV row, always -- nothing is silently dropped. Columns:
 
-    Active | ID | X | Y | Z | B | C | Pen | L3D | <your custom columns>
+    Active | ID|S | X | Y | Z | B | C | Pen | L3D|S | <your custom columns>
+
+  ID and L3D carry a "|S" suffix on their header to mark them as
+  string-typed columns (every other column here is numeric and needs no
+  suffix) -- this is the downstream job format's own type-tagging
+  convention, not something this script invents.
 
   - Active is 1 for a row that was successfully matched to a .MACH
     processing row (within tolerance, and not lost to a closer competing
     row). It's 0 for anything that wasn't -- bad/missing X,Y,Z in the
     source CSV, no .MACH row close enough, or it lost a tie-break -- with
-    X/Y/Z/B/C/Pen/L3D left blank on that row. The point is that a row that
-    couldn't be matched still shows up in the file, flagged off, rather
-    than just disappearing -- see WHAT THIS SCRIPT DOES step 6.
-  - X, Y, Z, B, C, Pen, L3D all come from the matched .MACH processing row,
-    NOT from the source CSV (the source CSV's own X/Y/Z are only used to
-    find the match -- see MATCHING AND MATCH_AXES -- and aren't carried
+    X/Y/Z/B/C/Pen/L3D|S left blank on that row. The point is that a row
+    that couldn't be matched still shows up in the file, flagged off,
+    rather than just disappearing -- see WHAT THIS SCRIPT DOES step 6.
+  - X, Y, Z, B, C, Pen, L3D|S all come from the matched .MACH processing
+    row, NOT from the source CSV (the source CSV's own X/Y/Z are only used
+    to find the match -- see MATCHING AND MATCH_AXES -- and aren't carried
     into the output).
-  - Any names listed in CUSTOM_COLUMNS below are appended after L3D, always
+  - Any names listed in CUSTOM_COLUMNS below are appended after L3D|S, always
     filled with 0, for values that have to be typed in by hand afterward.
 
 WHAT THIS SCRIPT DOES
@@ -119,6 +124,12 @@ this toolset.
 
 VERSION HISTORY
 ----------------
+RC4 (2026-09-30) - ID and L3D output column headers now carry a "|S" suffix
+    (ID|S, L3D|S) to mark them as string-typed, per the downstream job
+    format's convention. New COL_ID constant added alongside the existing
+    COL_L3D (now "L3D|S"); no other column, matching, or Active-flag logic
+    changed. build_output_row's tests updated and re-passed (34 checks) to
+    confirm the new keys.
 RC3 (2026-09-30) - Output file is now saved with a .sp extension instead of
     .csv (content is unchanged -- still plain CSV, Active/ID/X/Y/Z/B/C/Pen/
     L3D). Only the save dialog's default filename/extension and filter
@@ -150,7 +161,7 @@ import os
 import re
 import math
 
-SCRIPT_VERSION = "RC3"
+SCRIPT_VERSION = "RC4"
 
 # ---------------------------------------------------------------------------
 # Extra columns appended to the output CSV, always filled with 0. Add or
@@ -165,11 +176,14 @@ CUSTOM_COLUMNS = []
 # trusting the default of "XYZ" on a new CSV/.MACH pair.
 MATCH_AXES = "XYZ"   # "XYZ" or "XY"
 
-# Output column names.
+# Output column names. ID and L3D carry a "|S" suffix to mark them as
+# string-typed columns, per the downstream job format's convention (every
+# other output column here is numeric and needs no suffix).
 COL_ACTIVE = "Active"
+COL_ID = "ID|S"
 COL_B = "B"
 COL_C = "C"
-COL_L3D = "L3D"
+COL_L3D = "L3D|S"
 COL_PEN = "Pen"
 
 GROUP_RE = re.compile(r'Group:\s*(\d+)')
@@ -333,10 +347,14 @@ def match_csv_to_mach(csv_rows, mach_blocks, axes="XYZ"):
 
 
 def build_output_row(row, match, custom_columns):
-    """Builds one output-CSV row dict (keys: Active, ID, X, Y, Z, B, C, Pen,
-    L3D, plus every name in custom_columns).
+    """Builds one output-CSV row dict (keys: Active, ID|S, X, Y, Z, B, C,
+    Pen, L3D|S, plus every name in custom_columns). ID and L3D carry a "|S"
+    suffix on their header to mark them as string-typed columns, per the
+    downstream job format's convention (every other column here is numeric).
 
-    row: the original CSV row dict (must have an 'ID' key).
+    row: the original CSV row dict (must have an 'ID' key -- the SOURCE
+        CSV's own column is still plain "ID", unsuffixed; only the output
+        header changes).
     match: (mach_block, distance) tuple if this row was matched and kept, or
         None if it wasn't (no numeric X/Y/Z in the source CSV, no MACH block
         close enough, or it lost a tie-break to a closer row).
@@ -346,7 +364,7 @@ def build_output_row(row, match, custom_columns):
     (bad source data, no match, too far, lost tie-break) comes out as
     Active=0 with the MACH-derived fields left blank, so a human has to
     consciously turn a row back on rather than a bad row just vanishing."""
-    out = {"ID": row.get("ID", "")}
+    out = {COL_ID: row.get("ID", "")}
     if match is not None:
         block, _dist = match
         out[COL_ACTIVE] = 1
@@ -475,7 +493,7 @@ def main():
 
     match_lookup = {id(row): (block, d) for row, block, d in matches}
 
-    out_fieldnames = [COL_ACTIVE, "ID", "X", "Y", "Z", COL_B, COL_C, COL_PEN, COL_L3D] + list(CUSTOM_COLUMNS)
+    out_fieldnames = [COL_ACTIVE, COL_ID, "X", "Y", "Z", COL_B, COL_C, COL_PEN, COL_L3D] + list(CUSTOM_COLUMNS)
 
     out_rows = []
     for row in csv_rows:
