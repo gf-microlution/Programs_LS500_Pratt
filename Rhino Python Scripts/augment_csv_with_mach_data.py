@@ -1,11 +1,11 @@
 #! python 3
 """
-Build a laser job CSV (Active, ID, X, Y, Z, B, C, Pen, L3D, plus any custom
-columns you want) by matching a CSV (ID, X, Y, Z, I, J, K -- the same format
-used by attach_UAdata_to_closest_mesh.py) against a .MACH file exported by
-the Rhino CAM, pulling each matched row's motion coordinates (X, Y, Z, B, C),
-its .l3d slicing filename, and the laser "pen" (the P value of the most
-recent M111 line above that row).
+Build a laser job file (.sp extension, CSV content: Active, ID, X, Y, Z, B,
+C, Pen, L3D, plus any custom columns you want) by matching a CSV (ID, X, Y,
+Z, I, J, K -- the same format used by attach_UAdata_to_closest_mesh.py)
+against a .MACH file exported by the Rhino CAM, pulling each matched row's
+motion coordinates (X, Y, Z, B, C), its .l3d slicing filename, and the laser
+"pen" (the P value of the most recent M111 line above that row).
 
 WHAT A .MACH FILE LOOKS LIKE (see MACH FILE FORMAT below for the full story)
 -----------------------------------------------------------------------------
@@ -18,9 +18,11 @@ Each such block is one "processing row": a Group comment, an optional M111
 pen-select line, the G00.1 motion line carrying X/Y/Z/B/C, and a *po=...*
 line carrying the .l3d filename in quotes.
 
-OUTPUT CSV
------------
-One row per input CSV row, always -- nothing is silently dropped. Columns:
+OUTPUT FILE
+------------
+Written with a .sp extension (not .csv) -- the content is still plain CSV,
+just saved under the extension the downstream job expects. One row per
+input CSV row, always -- nothing is silently dropped. Columns:
 
     Active | ID | X | Y | Z | B | C | Pen | L3D | <your custom columns>
 
@@ -41,7 +43,7 @@ One row per input CSV row, always -- nothing is silently dropped. Columns:
 WHAT THIS SCRIPT DOES
 ----------------------
 1. Prompts you to select the CSV file (ID, X, Y, Z required; I, J, K and any
-   other columns are read but not carried into the output -- see OUTPUT CSV).
+   other columns are read but not carried into the output -- see OUTPUT FILE).
 2. Prompts you to select the .MACH file.
 3. Parses every processing row out of the .MACH file (see MACH FILE FORMAT).
 4. Prompts for a max match distance (0 = no limit, which is the default --
@@ -53,10 +55,10 @@ WHAT THIS SCRIPT DOES
    (same closest-wins convention as attach_UAdata_to_closest_mesh.py) --
    each .MACH processing row is physically a single laser job step, so it
    should only ever end up attached to one part feature.
-6. Writes one output row per CSV row (see OUTPUT CSV) and appends every
+6. Writes one output row per CSV row (see OUTPUT FILE) and appends every
    column listed in CUSTOM_COLUMNS, filled with 0.
-7. Prompts for where to save the job CSV (your original CSV file is never
-   modified).
+7. Prompts for where to save the job file, as .sp (your original CSV file
+   is never modified).
 8. Prints a full summary: how many rows were matched (i.e. came out
    Active=1), the resulting match-distance range (READ THIS -- see MATCHING
    AND MATCH_AXES), any .MACH processing rows that were never claimed, and
@@ -117,6 +119,10 @@ this toolset.
 
 VERSION HISTORY
 ----------------
+RC3 (2026-09-30) - Output file is now saved with a .sp extension instead of
+    .csv (content is unchanged -- still plain CSV, Active/ID/X/Y/Z/B/C/Pen/
+    L3D). Only the save dialog's default filename/extension and filter
+    changed; no content or matching logic was touched.
 RC2 (2026-09-30) - Simplified output to a fixed job-CSV header (Active, ID,
     X, Y, Z, B, C, Pen, L3D, + custom columns) instead of appending MACH_*
     columns onto a copy of the source CSV. Every source CSV row now always
@@ -144,7 +150,7 @@ import os
 import re
 import math
 
-SCRIPT_VERSION = "RC2"
+SCRIPT_VERSION = "RC3"
 
 # ---------------------------------------------------------------------------
 # Extra columns appended to the output CSV, always filled with 0. Add or
@@ -477,8 +483,8 @@ def main():
         out_rows.append(build_output_row(row, cand, CUSTOM_COLUMNS))
 
     base, _ext = os.path.splitext(os.path.basename(csv_path))
-    default_name = base + "_job.csv"
-    save_path = select_save_file("Save job CSV as", "CSV Files (*.csv)|*.csv", default_name)
+    default_name = base + "_job.sp"
+    save_path = select_save_file("Save job file as", "SP Files (*.sp)|*.sp|All Files (*.*)|*.*", default_name)
     if not save_path:
         print("No output file chosen -- nothing written.")
         return
